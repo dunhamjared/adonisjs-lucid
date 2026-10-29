@@ -401,6 +401,44 @@ test.group('Query Builder | select', (group) => {
     assert.deepEqual(bindings, knexBindings)
     await connection.disconnect()
   })
+
+  test('define columns as raw queries with subquery in array bindings', async ({ assert }) => {
+    const connection = new Connection('primary', getConfig(), logger)
+    connection.connect()
+
+    const client = getQueryClient(connection)
+    const db = getQueryBuilder(client)
+
+    const subquery = client
+      .query()
+      .from('related_table as r')
+      .select(1)
+      .whereRaw('r.item_id = i.id')
+      .where('r.status', 'published')
+
+    const { sql, bindings } = db
+      .from('items as i')
+      .select('i.id', 'i.name')
+      .select(client.raw('exists ? as ??', [subquery, 'has_relation']))
+      .toSQL()
+
+    const knexSubquery = connection
+      .client!.from('related_table as r')
+      .select(connection.client!.raw('1'))
+      .whereRaw('r.item_id = i.id')
+      .where('r.status', 'published')
+
+    const { sql: knexSql, bindings: knexBindings } = connection
+      .client!.from('items as i')
+      .select('i.id', 'i.name')
+      .select(connection.client!.raw('exists ? as ??', [knexSubquery, 'has_relation']))
+      .toSQL()
+
+    assert.equal(sql, knexSql)
+    assert.deepEqual(bindings, knexBindings)
+    assert.include(sql, 'where r.item_id = i.id and `r`.`status` = ?')
+    await connection.disconnect()
+  })
 })
 
 test.group('Query Builder | where', (group) => {
@@ -4017,6 +4055,38 @@ test.group('Query Builder | whereRaw', (group) => {
 
     assert.equal(sql, knexSql)
     assert.deepEqual(bindings, knexBindings)
+
+    await connection.disconnect()
+  })
+
+  test('apply where clauses on subquery in whereRaw array bindings', async ({ assert }) => {
+    const connection = new Connection('primary', getConfig(), logger)
+    connection.connect()
+
+    const client = getQueryClient(connection)
+    const db = getQueryBuilder(client)
+
+    const subquery = client
+      .query()
+      .from('posts')
+      .where('status', 'published')
+      .where('score', '>', 10)
+
+    const { sql, bindings } = db.from('users').whereRaw('exists ?', [subquery]).toSQL()
+
+    const knexSubquery = connection
+      .client!.from('posts')
+      .where('status', 'published')
+      .where('score', '>', 10)
+
+    const { sql: knexSql, bindings: knexBindings } = connection
+      .client!.from('users')
+      .whereRaw('exists ?', [knexSubquery])
+      .toSQL()
+
+    assert.equal(sql, knexSql)
+    assert.deepEqual(bindings, knexBindings)
+    assert.include(sql, 'where `status` = ? and `score` > ?')
 
     await connection.disconnect()
   })

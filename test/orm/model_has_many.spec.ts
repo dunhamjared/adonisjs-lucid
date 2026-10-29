@@ -816,6 +816,64 @@ test.group('Model | HasMany | sub queries', (group) => {
     assert.deepEqual(bindings, knexBindings)
   })
 
+  test('apply relationship constraints when passing subQuery to raw bindings', async ({
+    fs,
+    assert,
+  }) => {
+    const app = new AppFactory().create(fs.baseUrl, () => {})
+    await app.init()
+    const db = getDb()
+    const adapter = ormAdapter(db)
+    const BaseModel = getBaseModel(adapter)
+
+    class Post extends BaseModel {
+      @column()
+      declare userId: number
+    }
+
+    class User extends BaseModel {
+      @column({ isPrimary: true })
+      declare id: number
+
+      @hasMany(() => Post)
+      declare posts: HasMany<typeof Post>
+    }
+
+    User.$getRelation('posts')!.boot()
+
+    const subQuery = User.$getRelation('posts')!.subQuery(db.connection())
+
+    const { sql, bindings } = db
+      .query()
+      .from('users')
+      .select('users.*')
+      .select(db.raw('exists ? as ??', [subQuery, 'has_posts']))
+      .toSQL()
+
+    const { sql: knexSql, bindings: knexBindings } = db
+      .connection()
+      .knexQuery()
+      .from('users')
+      .select('users.*')
+      .select(
+        db
+          .connection()
+          .getWriteClient()
+          .raw('exists ? as ??', [
+            db
+              .connection()
+              .knexQuery()
+              .from('posts')
+              .where('users.id', '=', db.connection().getReadClient().ref('posts.user_id')),
+            'has_posts',
+          ])
+      )
+      .toSQL()
+
+    assert.equal(sql, knexSql)
+    assert.deepEqual(bindings, knexBindings)
+  })
+
   test('create aggregate query', async ({ fs, assert }) => {
     const app = new AppFactory().create(fs.baseUrl, () => {})
     await app.init()

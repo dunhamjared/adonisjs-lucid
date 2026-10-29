@@ -33,10 +33,23 @@ export class RawBuilder implements RawBuilderContract {
   }
 
   /**
+   * Transforms raw bindings to knex compatible values
+   */
+  protected transformBindings(bindings: any, client: Knex.Client): any {
+    if (Array.isArray(bindings)) {
+      return bindings.map((binding) => {
+        return binding && typeof binding.toKnex === 'function' ? binding.toKnex(client) : binding
+      })
+    }
+
+    return bindings
+  }
+
+  /**
    * Converts the raw query to knex raw query instance
    */
   toKnex(client: Knex.Client): Knex.Raw {
-    const rawQuery = client.raw(this.sql, this.bindings)
+    const rawQuery = client.raw(this.sql, this.transformBindings(this.bindings, client))
 
     if (this.wrapBefore && this.wrapAfter) {
       rawQuery.wrap(this.wrapBefore, this.wrapAfter)
